@@ -75,3 +75,15 @@ export interface HealthStatus {
   error?: string;
 }
 
+export type UnifiedLeaseItem = (DhcpLease & { type: 'lease' }) | (DhcpReservation & { type: 'reservation' });
+
+export interface IpPoolRange {
+  start: string;
+  end: string;
+}
+
+export interface IpValidationResult {
+  valid: boolean;
+  error?: string;
+}
+

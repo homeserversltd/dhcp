@@ -1,97 +1,216 @@
 import React, { useState } from 'react';
-import { DhcpLease, DhcpReservation } from '../types';
+import { DhcpLease, DhcpReservation, UnifiedLeaseItem } from '../types';
 
 interface DhcpCardProps {
-  lease?: DhcpLease;
-  reservation?: DhcpReservation;
-  type: 'lease' | 'reservation';
+  item: UnifiedLeaseItem;
+  onPin?: (lease: DhcpLease) => Promise<void>;
+  onUpdateIp?: (identifier: string, newIp: string) => Promise<void>;
   onRemove?: (identifier: string) => void;
   className?: string;
 }
 
 export const DhcpCard: React.FC<DhcpCardProps> = ({ 
-  lease,
-  reservation,
-  type,
+  item,
+  onPin,
+  onUpdateIp,
   onRemove,
   className = '' 
 }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isEditingIp, setIsEditingIp] = useState(false);
+  const [editedIp, setEditedIp] = useState(item['ip-address']);
+  const [isSaving, setIsSaving] = useState(false);
+  const [ipError, setIpError] = useState<string | null>(null);
+
+  const isReservation = item.type === 'reservation';
+  const isLease = item.type === 'lease';
+
+  const handlePin = async () => {
+    if (onPin && isLease) {
+      try {
+        await onPin(item);
+      } catch (err) {
+        console.error('Failed to pin lease:', err);
+      }
+    }
+  };
+
+  const handleStartEdit = () => {
+    if (isReservation && onUpdateIp) {
+      setIsEditingIp(true);
+      setEditedIp(item['ip-address']);
+      setIpError(null);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditingIp(false);
+    setEditedIp(item['ip-address']);
+    setIpError(null);
+  };
+
+  const validateIp = (ip: string): string | null => {
+    // Basic IPv4 validation
+    const ipRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+    if (!ipRegex.test(ip)) {
+      return 'Invalid IP address format';
+    }
+    
+    const parts = ip.split('.').map(Number);
+    if (parts.some(p => p < 0 || p > 255)) {
+      return 'IP address octets must be 0-255';
+    }
+    
+    return null;
+  };
+
+  const handleSaveIp = async () => {
+    if (!onUpdateIp || !isReservation) return;
+    
+    const error = validateIp(editedIp);
+    if (error) {
+      setIpError(error);
+      return;
+    }
+
+    if (editedIp === item['ip-address']) {
+      setIsEditingIp(false);
+      return;
+    }
+
+    setIsSaving(true);
+    setIpError(null);
+    
+    try {
+      const identifier = item['hw-address'] || item['ip-address'];
+      await onUpdateIp(identifier, editedIp);
+      setIsEditingIp(false);
+    } catch (err) {
+      setIpError(err instanceof Error ? err.message : 'Failed to update IP address');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleRemove = () => {
-    if (onRemove) {
-      const identifier = type === 'lease' 
-        ? lease?.['hw-address'] || lease?.['ip-address'] || ''
-        : reservation?.['hw-address'] || reservation?.['ip-address'] || '';
+    if (onRemove && isReservation) {
+      const identifier = item['hw-address'] || item['ip-address'];
       onRemove(identifier);
     }
   };
 
-  const displayData = type === 'lease' ? lease : reservation;
-  if (!displayData) return null;
+  const formatExpireTime = (expire: string): string => {
+    try {
+      const expireTime = parseInt(expire);
+      if (expireTime > 0) {
+        const date = new Date(expireTime * 1000);
+        return date.toLocaleString();
+      }
+    } catch {
+      // Ignore
+    }
+    return expire;
+  };
 
   return (
-    <div className={`dhcp-card ${className} ${type}`}>
-      <div className="dhcp-card-header">
-        <div className="dhcp-card-title">
-          <h3>{displayData['ip-address']}</h3>
-          <span className={`type-badge ${type}`}>
-            {type === 'lease' ? 'Lease' : 'Reservation'}
-          </span>
-        </div>
-        <button 
-          className="expand-button"
-          onClick={() => setIsExpanded(!isExpanded)}
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
-        >
-          {isExpanded ? '−' : '+'}
-        </button>
-      </div>
-
-      <div className="dhcp-card-content">
-        <div className="dhcp-card-info">
-          <div className="info-row">
-            <span className="info-label">MAC Address:</span>
-            <span className="info-value">{displayData['hw-address']}</span>
-          </div>
-          {displayData.hostname && (
-            <div className="info-row">
-              <span className="info-label">Hostname:</span>
-              <span className="info-value">{displayData.hostname}</span>
+    <div className={`dhcp-list-item ${className} ${isReservation ? 'pinned' : 'lease'}`}>
+      <div className="dhcp-list-item-content">
+        <div className="dhcp-list-item-main">
+          <div className="dhcp-list-item-info">
+            <div className="dhcp-list-item-mac">
+              <span className="info-label">MAC:</span>
+              <span className="info-value">{item['hw-address']}</span>
             </div>
-          )}
-          {type === 'lease' && lease && (
-            <>
-              {lease.expire && (
-                <div className="info-row">
-                  <span className="info-label">Expires:</span>
-                  <span className="info-value">{lease.expire}</span>
+            <div className="dhcp-list-item-ip">
+              <span className="info-label">IP:</span>
+              {isEditingIp && isReservation ? (
+                <div className="ip-edit-container">
+                  <input
+                    type="text"
+                    value={editedIp}
+                    onChange={(e) => {
+                      setEditedIp(e.target.value);
+                      setIpError(null);
+                    }}
+                    className={`ip-edit-input ${ipError ? 'error' : ''}`}
+                    disabled={isSaving}
+                  />
+                  {ipError && <span className="ip-error">{ipError}</span>}
                 </div>
+              ) : (
+                <span className="info-value">{item['ip-address']}</span>
               )}
-              {lease.state && (
-                <div className="info-row">
-                  <span className="info-label">State:</span>
-                  <span className="info-value">{lease.state}</span>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {isExpanded && (
-          <div className="dhcp-card-expanded">
-            {type === 'reservation' && onRemove && (
-              <div className="dhcp-actions">
-                <button 
-                  onClick={handleRemove}
-                  className="remove-button"
-                >
-                  Remove Reservation
-                </button>
+            </div>
+            {item.hostname && (
+              <div className="dhcp-list-item-hostname">
+                <span className="info-label">Hostname:</span>
+                <span className="info-value">{item.hostname}</span>
+              </div>
+            )}
+            {isLease && 'expire' in item && item.expire && (
+              <div className="dhcp-list-item-expire">
+                <span className="info-label">Expires:</span>
+                <span className="info-value">{formatExpireTime(item.expire)}</span>
               </div>
             )}
           </div>
-        )}
+          <div className="dhcp-list-item-badge">
+            {isReservation ? (
+              <span className="pinned-badge">Pinned</span>
+            ) : (
+              <span className="lease-badge">Lease</span>
+            )}
+          </div>
+        </div>
+        <div className="dhcp-list-item-actions">
+          {isLease && onPin && (
+            <button
+              onClick={handlePin}
+              className="pin-button"
+              title="Pin this lease as a reservation"
+            >
+              Pin
+            </button>
+          )}
+          {isReservation && onUpdateIp && (
+            <>
+              {isEditingIp ? (
+                <>
+                  <button
+                    onClick={handleSaveIp}
+                    className="save-button"
+                    disabled={isSaving || !!ipError}
+                  >
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="cancel-button"
+                    disabled={isSaving}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleStartEdit}
+                  className="edit-button"
+                  title="Edit IP address"
+                >
+                  Edit IP
+                </button>
+              )}
+            </>
+          )}
+          {isReservation && onRemove && !isEditingIp && (
+            <button
+              onClick={handleRemove}
+              className="remove-button"
+              title="Remove reservation"
+            >
+              Remove
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

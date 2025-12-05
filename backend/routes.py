@@ -102,6 +102,41 @@ def add_reservation():
             'error': str(e)
         }), 500
 
+@bp.route('/reservations/<reservation_id>', methods=['PUT'])
+def update_reservation(reservation_id):
+    """Update a reservation's IP address."""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        if 'ip-address' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: ip-address'
+            }), 400
+        
+        result = dhcp_manager.update_reservation_ip(
+            identifier=reservation_id,
+            new_ip=data['ip-address']
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Reservation updated successfully',
+            'reservation': result
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error updating DHCP reservation: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @bp.route('/reservations/<reservation_id>', methods=['DELETE'])
 def remove_reservation(reservation_id):
     """Remove a static IP reservation."""

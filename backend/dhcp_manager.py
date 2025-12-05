@@ -9,6 +9,9 @@ import json
 import subprocess
 import tempfile
 import os
+import csv
+import time
+from io import StringIO
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -267,23 +270,44 @@ class DhcpManager:
             if not success:
                 return leases
             
-            # Parse CSV lease database
-            # Format: address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context
-            lines = output.strip().split('\n')
+            # Use dict keyed by MAC address to automatically deduplicate
+            leases_by_mac = {}
+            current_time = int(time.time())
             
-            for line in lines[1:]:  # Skip header
-                if not line.strip():
+            # Parse CSV lease database using proper CSV parser
+            # Format: address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context
+            csv_content = StringIO(output)
+            reader = csv.DictReader(csv_content)
+            
+            for row in reader:
+                # Only include active leases (state=0 and not expired)
+                try:
+                    expire_time = int(row['expire']) if row.get('expire') else 0
+                    state = int(row['state']) if row.get('state') else 1
+                except (ValueError, KeyError):
                     continue
                 
-                parts = line.split(',')
-                if len(parts) >= 9:
-                    leases.append({
-                        'ip-address': parts[0],
-                        'hw-address': parts[1],
-                        'hostname': parts[8] if len(parts) > 8 else '',
-                        'expire': parts[4] if len(parts) > 4 else '',
-                        'state': parts[9] if len(parts) > 9 else 'default'
-                    })
+                if state == 0 and expire_time > current_time:
+                    mac = row.get('hwaddr', '')
+                    if not mac:
+                        continue
+                    
+                    # Keep the lease with the latest expiration time for each MAC
+                    if mac not in leases_by_mac or expire_time > leases_by_mac[mac]['_expire']:
+                        leases_by_mac[mac] = {
+                            'ip-address': row.get('address', ''),
+                            'hw-address': mac,
+                            'hostname': row.get('hostname', ''),
+                            'expire': str(expire_time),
+                            'state': str(state),
+                            '_expire': expire_time  # Internal field for comparison
+                        }
+            
+            # Convert dict to list and remove internal expire field
+            for lease in leases_by_mac.values():
+                lease.pop('_expire', None)  # Remove internal field
+                leases.append(lease)
+                
         except Exception as e:
             # If we can't read leases, return empty list
             # This is not a critical error
@@ -316,4 +340,113 @@ class DhcpManager:
             return True
         except (ValueError, AttributeError):
             return False
+    
+    def _get_pool_range(self) -> tuple[Optional[str], Optional[str]]:
+        """Extract IP pool range from configuration."""
+        try:
+            config = self.get_config()
+            subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
+            if not subnet4:
+                return None, None
+            
+            subnet = subnet4[0]
+            pools = subnet.get('pools', [])
+            if not pools:
+                return None, None
+            
+            # Get first pool range
+            pool_str = pools[0].get('pool', '')
+            if ' - ' in pool_str:
+                start_ip, end_ip = pool_str.split(' - ', 1)
+                return start_ip.strip(), end_ip.strip()
+            
+            return None, None
+        except Exception:
+            return None, None
+    
+    def _ip_to_int(self, ip: str) -> Optional[int]:
+        """Convert IP address to integer for comparison."""
+        try:
+            parts = ip.split('.')
+            if len(parts) != 4:
+                return None
+            return int(parts[0]) * 256**3 + int(parts[1]) * 256**2 + int(parts[2]) * 256 + int(parts[3])
+        except (ValueError, AttributeError):
+            return None
+    
+    def _validate_ip_in_pool(self, ip: str) -> bool:
+        """Validate IP address is within configured pool range."""
+        if not self._validate_ip_address(ip):
+            return False
+        
+        start_ip, end_ip = self._get_pool_range()
+        if not start_ip or not end_ip:
+            # If pool range can't be determined, just validate format
+            return True
+        
+        ip_int = self._ip_to_int(ip)
+        start_int = self._ip_to_int(start_ip)
+        end_int = self._ip_to_int(end_ip)
+        
+        if ip_int is None or start_int is None or end_int is None:
+            return False
+        
+        return start_int <= ip_int <= end_int
+    
+    def update_reservation_ip(self, identifier: str, new_ip: str) -> Dict[str, Any]:
+        """Update a reservation's IP address."""
+        config = self.get_config()
+        
+        # Validate new IP address
+        if not self._validate_ip_address(new_ip):
+            raise Exception(f"Invalid IP address format: {new_ip}")
+        
+        # Validate IP is within pool range
+        if not self._validate_ip_in_pool(new_ip):
+            start_ip, end_ip = self._get_pool_range()
+            if start_ip and end_ip:
+                raise Exception(f"IP address {new_ip} is outside the configured pool range ({start_ip} - {end_ip})")
+            else:
+                raise Exception(f"Could not validate IP address against pool range")
+        
+        # Check if new IP is already assigned to another reservation
+        existing = self.get_reservations()
+        for res in existing:
+            if res['ip-address'] == new_ip:
+                # Allow if it's the same reservation we're updating
+                if res['hw-address'].lower() != identifier.lower() and res['ip-address'] != identifier:
+                    raise Exception("IP address is already assigned to another reservation")
+        
+        # Find and update the reservation
+        try:
+            subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
+            found = False
+            
+            for subnet in subnet4:
+                if 'reservations' in subnet:
+                    for reservation in subnet['reservations']:
+                        # Match by MAC or IP
+                        if (reservation.get('hw-address', '').lower() == identifier.lower() or
+                            reservation.get('ip-address', '') == identifier):
+                            reservation['ip-address'] = new_ip
+                            found = True
+                            break
+                    if found:
+                        break
+            
+            if not found:
+                raise Exception("Reservation not found")
+            
+            # Update config
+            updated_config = self.update_config(config)
+            
+            # Return updated reservation
+            updated_reservations = self.get_reservations()
+            for res in updated_reservations:
+                if res['hw-address'].lower() == identifier.lower() or res['ip-address'] == new_ip:
+                    return res
+            
+            raise Exception("Failed to retrieve updated reservation")
+        except Exception as e:
+            raise Exception(f"Failed to update reservation: {str(e)}")
 

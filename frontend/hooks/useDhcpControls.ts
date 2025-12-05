@@ -134,6 +134,37 @@ export const useDhcpControls = () => {
     }
   }, []);
 
+  const updateReservation = useCallback(async (
+    identifier: string,
+    ipAddress: string
+  ): Promise<DhcpReservation> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/dhcp/reservations/${encodeURIComponent(identifier)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          'ip-address': ipAddress,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update reservation');
+      }
+      
+      setIsLoading(false);
+      return data.reservation;
+    } catch (err) {
+      handleError(err);
+      throw err;
+    }
+  }, []);
+
   const getConfig = useCallback(async (): Promise<DhcpConfig> => {
     setIsLoading(true);
     setError(null);
@@ -204,6 +235,7 @@ export const useDhcpControls = () => {
     getReservations,
     addReservation,
     removeReservation,
+    updateReservation,
     getConfig,
     updateConfig,
     checkHealth,
