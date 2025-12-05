@@ -1,0 +1,20 @@
+{
+    "tabs": {
+        "dhcp": {
+          "config": {
+            "displayName": "DHCP",
+            "adminOnly": true,
+            "order": 85,
+            "isEnabled": true
+          },
+          "visibility": {
+            "tab": true,
+            "elements": {
+            }
+          },
+          "data": {
+          }
+        }
+    }
+}
+
