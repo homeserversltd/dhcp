@@ -38,7 +38,7 @@
 }
 
 .dhcp-action-button {
-  background: var(--accent);
+  background: var(--secondary);
   color: var(--background);
   border: none;
   padding: 10px 20px;
@@ -50,7 +50,7 @@
 }
 
 .dhcp-action-button:hover:not(:disabled) {
-  background: var(--statusUp);
+  background: var(--primaryHover);
 }
 
 .dhcp-action-button:disabled {
@@ -267,16 +267,16 @@
 }
 
 .pin-button {
-  background: var(--accent);
+  background: var(--secondary);
   color: var(--background);
 }
 
 .pin-button:hover {
-  background: var(--statusUp);
+  background: var(--primaryHover);
 }
 
 .edit-button {
-  background: var(--hiddenTabBackground);
+  background: var(--primary);
   color: var(--text);
   border: 1px solid var(--border);
 }
@@ -286,12 +286,12 @@
 }
 
 .save-button {
-  background: var(--success);
+  background: var(--primary);
   color: var(--background);
 }
 
 .save-button:hover:not(:disabled) {
-  background: var(--statusUp);
+  background: var(--primaryHover);
 }
 
 .save-button:disabled {
@@ -321,7 +321,7 @@
 }
 
 .remove-button:hover {
-  background: var(--statusDown);
+  background: var(--secondary);
 }
 
 /* IP Edit Input */
@@ -624,7 +624,7 @@
 }
 
 .health-check-button {
-  background: var(--success);
+  background: var(--primary);
   color: var(--background);
   border: none;
   padding: 12px 24px;
@@ -635,7 +635,7 @@
 }
 
 .health-check-button:hover:not(:disabled) {
-  background: var(--statusUp);
+  background: var(--primaryHover);
 }
 
 .health-check-button:disabled {

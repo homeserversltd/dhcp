@@ -85,7 +85,7 @@ class DhcpManager:
             raise Exception(f"Invalid JSON in config file: {str(e)}")
     
     def update_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Update DHCP configuration file."""
+        """Update DHCP configuration file using atomic shell script."""
         # Validate JSON structure
         try:
             json.dumps(config)
@@ -96,45 +96,34 @@ class DhcpManager:
         if not self._validate_config_structure(config):
             raise Exception("Invalid configuration structure")
         
-        # Write to temp file first
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as tmp_file:
-            tmp_path = tmp_file.name
-            json.dump(config, tmp_file, indent=4)
+        # Create temporary file with JSON config
+        config_json = json.dumps(config, indent=4)
+        
+        # Use tempfile to create a temporary file that we can pass to the script
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+            tmp_file.write(config_json)
+            tmp_file_path = tmp_file.name
         
         try:
-            # Copy temp file to config location using dd (following flask-admin pattern)
+            # Call the atomic update script
+            script_path = '/usr/local/sbin/update-kea-dhcp.sh'
+            
+            # Execute the script via sudo
             success, output = self._run_sudo_command([
-                'dd', f'if={tmp_path}', f'of={self.config_path}', 'bs=1M'
+                script_path, tmp_file_path
             ])
             
             if not success:
-                raise Exception(f"Failed to write config: {output}")
+                raise Exception(f"Configuration update failed: {output}")
             
-            # Set proper ownership and permissions
-            self._run_sudo_command([
-                'chown', '_kea:_kea', str(self.config_path)
-            ])
-            self._run_sudo_command([
-                'chmod', '640', str(self.config_path)
-            ])
-            
-            # Validate the written config
-            if not self.validate_config():
-                raise Exception("Configuration validation failed after write")
-            
-            # Reload service
-            reload_success, reload_output = self._run_sudo_command([
-                'systemctl', 'reload', 'kea-dhcp4-server'
-            ])
-            
-            if not reload_success:
-                raise Exception(f"Failed to reload service: {reload_output}")
-            
+            # Return updated config
             return self.get_config()
         finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            # Clean up temporary file
+            try:
+                os.unlink(tmp_file_path)
+            except Exception:
+                pass  # Ignore cleanup errors
     
     def validate_config(self) -> bool:
         """Validate DHCP configuration file."""
@@ -192,7 +181,7 @@ class DhcpManager:
         if not self._validate_mac_address(hw_address):
             raise Exception(f"Invalid MAC address: {hw_address}")
         
-        # Check if reservation already exists
+        # Check if reservation already exists in file
         existing = self.get_reservations()
         for res in existing:
             if res['hw-address'].lower() == hw_address.lower():
@@ -200,16 +189,24 @@ class DhcpManager:
             if res['ip-address'] == ip_address:
                 raise Exception("Reservation with this IP address already exists")
         
+        # Also check in-memory config structure before adding
+        subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
+        if not subnet4:
+            raise Exception("No subnet4 configuration found")
+        
+        subnet = subnet4[0]
+        if 'reservations' not in subnet:
+            subnet['reservations'] = []
+        
+        # Check for duplicates in the in-memory config as well
+        for res in subnet['reservations']:
+            if res.get('hw-address', '').lower() == hw_address.lower():
+                raise Exception("Reservation with this MAC address already exists")
+            if res.get('ip-address', '') == ip_address:
+                raise Exception("Reservation with this IP address already exists")
+        
         # Add reservation to first subnet
         try:
-            subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
-            if not subnet4:
-                raise Exception("No subnet4 configuration found")
-            
-            subnet = subnet4[0]
-            if 'reservations' not in subnet:
-                subnet['reservations'] = []
-            
             new_reservation = {
                 'hw-address': hw_address.lower(),
                 'ip-address': ip_address
