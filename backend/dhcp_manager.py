@@ -170,24 +170,49 @@ class DhcpManager:
         
         return reservations
     
-    def add_reservation(self, hw_address: str, ip_address: str, hostname: Optional[str] = None) -> Dict[str, Any]:
-        """Add a new static IP reservation."""
-        config = self.get_config()
+    def add_reservation(self, hw_address: str, ip_address: Optional[str] = None, hostname: Optional[str] = None) -> Dict[str, Any]:
+        """Add a new static IP reservation.
         
-        # Validate IP and MAC format
-        if not self._validate_ip_address(ip_address):
-            raise Exception(f"Invalid IP address: {ip_address}")
+        If ip_address is not provided or is in pool range, automatically assigns
+        the next available IP from reserved range (49 down to 2).
+        """
+        config = self.get_config()
         
         if not self._validate_mac_address(hw_address):
             raise Exception(f"Invalid MAC address: {hw_address}")
         
-        # Check if reservation already exists in file
+        # Check if reservation already exists
         existing = self.get_reservations()
         for res in existing:
             if res['hw-address'].lower() == hw_address.lower():
                 raise Exception("Reservation with this MAC address already exists")
+        
+        # Determine IP address to use
+        if not ip_address:
+            # Auto-assign from reserved range
+            ip_address = self._get_next_available_reserved_ip()
+            if not ip_address:
+                raise Exception("No available IP addresses in reserved range (192.168.123.2 - 192.168.123.49)")
+        else:
+            # Validate provided IP address format
+            if not self._validate_ip_address(ip_address):
+                raise Exception(f"Invalid IP address: {ip_address}")
+            
+            # If IP is in pool range, auto-assign from reserved range instead
+            if self._validate_ip_in_pool(ip_address):
+                ip_address = self._get_next_available_reserved_ip()
+                if not ip_address:
+                    raise Exception("No available IP addresses in reserved range (192.168.123.2 - 192.168.123.49)")
+            else:
+                # Validate that provided IP is in reserved range
+                if not self._validate_ip_in_reserved_range(ip_address):
+                    start_ip, end_ip = self._get_reserved_range()
+                    raise Exception(f"IP address {ip_address} is outside the reserved range ({start_ip} - {end_ip})")
+        
+        # Check if IP is already assigned
+        for res in existing:
             if res['ip-address'] == ip_address:
-                raise Exception("Reservation with this IP address already exists")
+                raise Exception("IP address is already assigned to another reservation")
         
         # Also check in-memory config structure before adding
         subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
@@ -203,7 +228,7 @@ class DhcpManager:
             if res.get('hw-address', '').lower() == hw_address.lower():
                 raise Exception("Reservation with this MAC address already exists")
             if res.get('ip-address', '') == ip_address:
-                raise Exception("Reservation with this IP address already exists")
+                raise Exception("IP address is already assigned to another reservation")
         
         # Add reservation to first subnet
         try:
@@ -361,6 +386,10 @@ class DhcpManager:
         except Exception:
             return None, None
     
+    def _get_reserved_range(self) -> tuple[str, str]:
+        """Get the reserved IP range for pinned reservations (2-49)."""
+        return ("192.168.123.2", "192.168.123.49")
+    
     def _ip_to_int(self, ip: str) -> Optional[int]:
         """Convert IP address to integer for comparison."""
         try:
@@ -390,21 +419,65 @@ class DhcpManager:
         
         return start_int <= ip_int <= end_int
     
+    def _validate_ip_in_reserved_range(self, ip: str) -> bool:
+        """Validate IP address is within reserved range for pinned reservations (2-49)."""
+        if not self._validate_ip_address(ip):
+            return False
+        
+        start_ip, end_ip = self._get_reserved_range()
+        ip_int = self._ip_to_int(ip)
+        start_int = self._ip_to_int(start_ip)
+        end_int = self._ip_to_int(end_ip)
+        
+        if ip_int is None or start_int is None or end_int is None:
+            return False
+        
+        return start_int <= ip_int <= end_int
+    
+    def _get_next_available_reserved_ip(self) -> Optional[str]:
+        """Find the next available IP in reserved range (49 down to 2)."""
+        existing_reservations = self.get_reservations()
+        used_ips = {res['ip-address'] for res in existing_reservations}
+        
+        start_ip, end_ip = self._get_reserved_range()
+        start_int = self._ip_to_int(start_ip)
+        end_int = self._ip_to_int(end_ip)
+        
+        if start_int is None or end_int is None:
+            return None
+        
+        # Check from 49 down to 2 (descending)
+        for ip_int in range(end_int, start_int - 1, -1):
+            # Convert integer back to IP string
+            ip_parts = [
+                (ip_int >> 24) & 0xFF,
+                (ip_int >> 16) & 0xFF,
+                (ip_int >> 8) & 0xFF,
+                ip_int & 0xFF
+            ]
+            ip_str = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.{ip_parts[3]}"
+            
+            if ip_str not in used_ips:
+                return ip_str
+        
+        # All IPs in reserved range are taken
+        return None
+    
     def update_reservation_ip(self, identifier: str, new_ip: str) -> Dict[str, Any]:
-        """Update a reservation's IP address."""
+        """Update a reservation's IP address.
+        
+        Validates that the new IP is within the reserved range (2-49).
+        """
         config = self.get_config()
         
         # Validate new IP address
         if not self._validate_ip_address(new_ip):
             raise Exception(f"Invalid IP address format: {new_ip}")
         
-        # Validate IP is within pool range
-        if not self._validate_ip_in_pool(new_ip):
-            start_ip, end_ip = self._get_pool_range()
-            if start_ip and end_ip:
-                raise Exception(f"IP address {new_ip} is outside the configured pool range ({start_ip} - {end_ip})")
-            else:
-                raise Exception(f"Could not validate IP address against pool range")
+        # Validate IP is within reserved range (not pool range)
+        if not self._validate_ip_in_reserved_range(new_ip):
+            start_ip, end_ip = self._get_reserved_range()
+            raise Exception(f"IP address {new_ip} is outside the reserved range ({start_ip} - {end_ip})")
         
         # Check if new IP is already assigned to another reservation
         existing = self.get_reservations()
@@ -446,4 +519,51 @@ class DhcpManager:
             raise Exception("Failed to retrieve updated reservation")
         except Exception as e:
             raise Exception(f"Failed to update reservation: {str(e)}")
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get DHCP statistics including homeserver IP, reservation count, and lease count."""
+        try:
+            config = self.get_config()
+            
+            # Extract homeserver IP from routers option
+            homeserver_ip = "192.168.123.1"  # Default
+            try:
+                subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
+                if subnet4:
+                    subnet = subnet4[0]
+                    option_data = subnet.get('option-data', [])
+                    for option in option_data:
+                        if option.get('name') == 'routers':
+                            homeserver_ip = option.get('data', homeserver_ip)
+                            break
+            except Exception:
+                pass  # Use default if extraction fails
+            
+            # Get reservation count
+            reservations = self.get_reservations()
+            reservations_count = len(reservations)
+            reservations_total = 48  # Reserved range: 192.168.123.2 - 192.168.123.49
+            
+            # Get lease count
+            leases = self.get_leases()
+            leases_count = len(leases)
+            
+            # Calculate pool total
+            start_ip, end_ip = self._get_pool_range()
+            leases_total = 0
+            if start_ip and end_ip:
+                start_int = self._ip_to_int(start_ip)
+                end_int = self._ip_to_int(end_ip)
+                if start_int is not None and end_int is not None:
+                    leases_total = end_int - start_int + 1
+            
+            return {
+                'homeserver_ip': homeserver_ip,
+                'reservations_count': reservations_count,
+                'reservations_total': reservations_total,
+                'leases_count': leases_count,
+                'leases_total': leases_total
+            }
+        except Exception as e:
+            raise Exception(f"Failed to get statistics: {str(e)}")
 

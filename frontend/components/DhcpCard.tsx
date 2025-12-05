@@ -60,6 +60,17 @@ export const DhcpCard: React.FC<DhcpCardProps> = ({
       return 'IP address octets must be 0-255';
     }
     
+    // For reservations, validate that IP is in reserved range (192.168.123.2 - 192.168.123.49)
+    if (isReservation) {
+      const [a, b, c, d] = parts;
+      if (a !== 192 || b !== 168 || c !== 123) {
+        return 'IP address must be in 192.168.123.x subnet';
+      }
+      if (d < 2 || d > 49) {
+        return 'IP address must be in reserved range (192.168.123.2 - 192.168.123.49)';
+      }
+    }
+    
     return null;
   };
 
@@ -204,7 +215,7 @@ export const DhcpCard: React.FC<DhcpCardProps> = ({
           {isReservation && onRemove && !isEditingIp && (
             <button
               onClick={handleRemove}
-              className="remove-button"
+              className="remove-dhcp-pin"
               title="Remove reservation"
             >
               Remove

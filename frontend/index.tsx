@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './PortalCard.css';
-import { DhcpLease, DhcpReservation, UnifiedLeaseItem } from './types';
+import { DhcpLease, DhcpReservation, UnifiedLeaseItem, DhcpStatistics } from './types';
 import { DhcpCard } from './components/DhcpCard';
 import { useDhcpControls } from './hooks/useDhcpControls';
 
@@ -11,12 +11,14 @@ const DhcpTablet: React.FC = () => {
     addReservation,
     removeReservation,
     updateReservation,
+    getStatistics,
     isLoading,
     error
   } = useDhcpControls();
 
   const [leases, setLeases] = useState<DhcpLease[]>([]);
   const [reservations, setReservations] = useState<DhcpReservation[]>([]);
+  const [statistics, setStatistics] = useState<DhcpStatistics | null>(null);
 
   useEffect(() => {
     loadData();
@@ -24,12 +26,14 @@ const DhcpTablet: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [leasesData, reservationsData] = await Promise.all([
+      const [leasesData, reservationsData, statisticsData] = await Promise.all([
         getLeases(),
-        getReservations()
+        getReservations(),
+        getStatistics()
       ]);
       setLeases(leasesData);
       setReservations(reservationsData);
+      setStatistics(statisticsData);
     } catch (err) {
       console.error('Failed to load DHCP data:', err);
     }
@@ -56,9 +60,10 @@ const DhcpTablet: React.FC = () => {
 
   const handlePin = async (lease: DhcpLease) => {
     try {
+      // Don't pass IP address - backend will auto-assign from reserved range (2-49)
       await addReservation(
         lease['hw-address'],
-        lease['ip-address'],
+        undefined, // Let backend auto-assign from reserved range
         lease.hostname || undefined
       );
       await loadData();
@@ -89,6 +94,21 @@ const DhcpTablet: React.FC = () => {
 
   return (
     <div className="dhcp-tablet">
+      {statistics && (
+        <div className="dhcp-info-banner">
+          <span className="dhcp-info-item">
+            Homeserver: <span className="dhcp-info-value">{statistics.homeserver_ip}</span>
+          </span>
+          <span className="dhcp-info-separator">|</span>
+          <span className="dhcp-info-item">
+            Reservations: <span className="dhcp-info-value">{statistics.reservations_count}/{statistics.reservations_total}</span>
+          </span>
+          <span className="dhcp-info-separator">|</span>
+          <span className="dhcp-info-item">
+            Hosts: <span className="dhcp-info-value">{statistics.leases_count}/{statistics.leases_total}</span>
+          </span>
+        </div>
+      )}
       <div className="dhcp-button-row">
         <button
           onClick={loadData}

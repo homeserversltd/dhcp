@@ -66,7 +66,11 @@ def get_reservations():
 
 @bp.route('/reservations', methods=['POST'])
 def add_reservation():
-    """Add a new static IP reservation."""
+    """Add a new static IP reservation.
+    
+    ip-address is optional. If not provided or if provided IP is in pool range,
+    the backend will auto-assign from reserved range (192.168.123.2-49).
+    """
     try:
         data = request.get_json()
         
@@ -76,17 +80,15 @@ def add_reservation():
                 'error': 'No data provided'
             }), 400
         
-        required_fields = ['hw-address', 'ip-address']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({
-                    'success': False,
-                    'error': f'Missing required field: {field}'
-                }), 400
+        if 'hw-address' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: hw-address'
+            }), 400
         
         result = dhcp_manager.add_reservation(
             hw_address=data['hw-address'],
-            ip_address=data['ip-address'],
+            ip_address=data.get('ip-address'),  # Optional - will auto-assign if not provided
             hostname=data.get('hostname')
         )
         
@@ -217,6 +219,22 @@ def health_check():
     except Exception as e:
         return jsonify({
             'status': 'unhealthy',
+            'error': str(e)
+        }), 500
+
+@bp.route('/statistics', methods=['GET'])
+def get_statistics():
+    """Get DHCP statistics including homeserver IP, reservation count, and lease count."""
+    try:
+        statistics = dhcp_manager.get_statistics()
+        return jsonify({
+            'success': True,
+            'statistics': statistics
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error getting DHCP statistics: {str(e)}")
+        return jsonify({
+            'success': False,
             'error': str(e)
         }), 500
 

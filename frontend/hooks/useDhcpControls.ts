@@ -8,7 +8,9 @@ import {
   DhcpServiceStatus,
   DhcpLeasesResponse,
   DhcpReservationsResponse,
-  DhcpConfigResponse
+  DhcpConfigResponse,
+  DhcpStatistics,
+  DhcpStatisticsResponse
 } from '../types';
 
 export const useDhcpControls = () => {
@@ -81,22 +83,31 @@ export const useDhcpControls = () => {
 
   const addReservation = useCallback(async (
     hwAddress: string,
-    ipAddress: string,
+    ipAddress?: string,
     hostname?: string
   ): Promise<DhcpReservation> => {
     setIsLoading(true);
     setError(null);
     try {
+      const body: any = {
+        'hw-address': hwAddress,
+      };
+      
+      // Only include ip-address if provided (backend will auto-assign if not provided)
+      if (ipAddress) {
+        body['ip-address'] = ipAddress;
+      }
+      
+      if (hostname) {
+        body.hostname = hostname;
+      }
+      
       const response = await fetch('/api/dhcp/reservations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          'hw-address': hwAddress,
-          'ip-address': ipAddress,
-          hostname: hostname || undefined,
-        }),
+        body: JSON.stringify(body),
       });
       
       const data = await response.json();
@@ -229,6 +240,25 @@ export const useDhcpControls = () => {
     }
   }, []);
 
+  const getStatistics = useCallback(async (): Promise<DhcpStatistics> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/dhcp/statistics');
+      const data: DhcpStatisticsResponse = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to get DHCP statistics');
+      }
+      
+      setIsLoading(false);
+      return data.statistics!;
+    } catch (err) {
+      handleError(err);
+      throw err;
+    }
+  }, []);
+
   return {
     getStatus,
     getLeases,
@@ -239,6 +269,7 @@ export const useDhcpControls = () => {
     getConfig,
     updateConfig,
     checkHealth,
+    getStatistics,
     isLoading,
     error,
   };

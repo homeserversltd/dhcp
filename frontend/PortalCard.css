@@ -25,6 +25,38 @@
   margin-bottom: 16px;
 }
 
+/* Information Banner */
+.dhcp-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  background: var(--hiddenTabBackground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.dhcp-info-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.dhcp-info-value {
+  font-family: 'Courier New', monospace;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.dhcp-info-separator {
+  color: var(--secondary);
+  opacity: 0.5;
+}
+
 /* Button Row */
 .dhcp-button-row {
   display: flex;
@@ -256,7 +288,7 @@
 .edit-button,
 .save-button,
 .cancel-button,
-.remove-button {
+.remove-dhcp-pin {
   padding: 6px 16px;
   border-radius: 4px;
   font-weight: 500;
@@ -286,7 +318,7 @@
 }
 
 .save-button {
-  background: var(--primary);
+  background: var(--secondary);
   color: var(--background);
 }
 
@@ -301,7 +333,7 @@
 }
 
 .cancel-button {
-  background: var(--hiddenTabBackground);
+  background: var(--secondary);
   color: var(--text);
   border: 1px solid var(--border);
 }
@@ -315,13 +347,13 @@
   cursor: not-allowed;
 }
 
-.remove-button {
+.remove-dhcp-pin {
   background: var(--error);
   color: var(--background);
 }
 
-.remove-button:hover {
-  background: var(--secondary);
+.remove-dhcp-pin:hover {
+  background: var(--primaryHover);
 }
 
 /* IP Edit Input */
@@ -491,7 +523,7 @@
   flex-wrap: wrap;
 }
 
-.remove-button {
+.remove-dhcp-pin {
   background: var(--error);
   color: var(--background);
   border: none;
@@ -502,8 +534,8 @@
   transition: background 0.2s ease;
 }
 
-.remove-button:hover {
-  background: var(--statusDown);
+.remove-dhcp-pin:hover {
+  background: var(--secondary);
 }
 
 /* Status Panel */
@@ -683,6 +715,22 @@
 @media (max-width: 768px) {
   .dhcp-tablet {
     padding: 16px;
+  }
+  
+  .dhcp-info-banner {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .dhcp-info-separator {
+    display: none;
+  }
+  
+  .dhcp-info-item {
+    flex: 1 1 auto;
+    min-width: fit-content;
   }
   
   .dhcp-list-item-content {

@@ -87,3 +87,17 @@ export interface IpValidationResult {
   error?: string;
 }
 
+export interface DhcpStatistics {
+  homeserver_ip: string;
+  reservations_count: number;
+  reservations_total: number;
+  leases_count: number;
+  leases_total: number;
+}
+
+export interface DhcpStatisticsResponse {
+  success: boolean;
+  statistics?: DhcpStatistics;
+  error?: string;
+}
+
