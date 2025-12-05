@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "config": {
     "repository": {
-      "url": "git@home.arpa:owner/dhcp.git",
-      "branch": "master"
+      "url": "git@github.com:homeserversltd/dhcp.git",
+      "branch": "main"
     },
     "git_managed": true
   },
