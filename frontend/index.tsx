@@ -23,6 +23,9 @@ const DhcpTablet: React.FC = () => {
   const [reservations, setReservations] = useState<DhcpReservation[]>([]);
   const [statistics, setStatistics] = useState<DhcpStatistics | null>(null);
   const [currentBoundary, setCurrentBoundary] = useState<number | undefined>(undefined);
+  const [newMac, setNewMac] = useState('');
+  const [newIp, setNewIp] = useState('');
+  const [isAddingReservation, setIsAddingReservation] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -142,24 +145,37 @@ const DhcpTablet: React.FC = () => {
     }
   };
 
-  const handleAddReservationFromSlider = async (mac: string, ip: string) => {
+  const handleAddNewReservation = async () => {
+    if (!newMac || !newIp) {
+      return;
+    }
+
+    setIsAddingReservation(true);
     try {
-      await addReservation(mac, ip);
+      await addReservation(newMac, newIp);
+      setNewMac('');
+      setNewIp('');
       await loadData();
     } catch (err) {
       console.error('Failed to add reservation:', err);
-      throw err;
+    } finally {
+      setIsAddingReservation(false);
     }
   };
 
   return (
     <div className="dhcp-tablet">
       {statistics && (() => {
+        // Calculate total hosts (unique MAC addresses)
+        // Hosts = reservations + active leases (non-reserved devices)
+        const totalHosts = statistics.reservations_count + statistics.leases_count;
+        
         console.log('[DHCP] Rendering banner with statistics:', {
           reservations_count: statistics.reservations_count,
           reservations_total: statistics.reservations_total,
           leases_count: statistics.leases_count,
-          leases_total: statistics.leases_total
+          leases_total: statistics.leases_total,
+          totalHosts
         });
         return (
           <div className="dhcp-info-banner">
@@ -172,11 +188,11 @@ const DhcpTablet: React.FC = () => {
             </span>
             <span className="dhcp-info-separator">|</span>
             <span className="dhcp-info-item">
-              Hosts: <span className="dhcp-info-value">{statistics.leases_count}</span>
+              Hosts: <span className="dhcp-info-value">{totalHosts}</span>
             </span>
             <span className="dhcp-info-separator">|</span>
             <span className="dhcp-info-item">
-              Leases: <span className="dhcp-info-value">{statistics.leases_total}</span>
+              Leases: <span className="dhcp-info-value">{statistics.leases_count}/{statistics.leases_total}</span>
             </span>
           </div>
         );
@@ -195,7 +211,6 @@ const DhcpTablet: React.FC = () => {
           currentHosts={statistics?.leases_count || 0}
           currentBoundary={currentBoundary}
           onBoundaryUpdate={handleBoundaryUpdate}
-          onAddReservation={handleAddReservationFromSlider}
           isLoading={isLoading}
         />
       </div>
@@ -214,6 +229,50 @@ const DhcpTablet: React.FC = () => {
         )}
 
         <div className="dhcp-list">
+          {/* Add New Reservation Section - Always visible at top */}
+          <div className="dhcp-list-item pinned add-reservation-row">
+            <div className="dhcp-list-item-content">
+              <div className="dhcp-list-item-main">
+                <div className="dhcp-list-item-info">
+                  <div className="dhcp-list-item-mac">
+                    <span className="info-label">MAC Address:</span>
+                    <input
+                      type="text"
+                      value={newMac}
+                      onChange={(e) => setNewMac(e.target.value)}
+                      placeholder="aa:bb:cc:dd:ee:ff"
+                      className="mac-input"
+                      disabled={isAddingReservation}
+                    />
+                  </div>
+                  <div className="dhcp-list-item-ip">
+                    <span className="info-label">IP Address:</span>
+                    <input
+                      type="text"
+                      value={newIp}
+                      onChange={(e) => setNewIp(e.target.value)}
+                      placeholder="192.168.123.2"
+                      className="ip-input"
+                      disabled={isAddingReservation}
+                    />
+                  </div>
+                </div>
+                <div className="dhcp-list-item-badge">
+                  <span className="pinned-badge">New</span>
+                </div>
+              </div>
+              <div className="dhcp-list-item-actions">
+                <button
+                  onClick={handleAddNewReservation}
+                  className="add-reservation-button"
+                  disabled={!newMac || !newIp || isAddingReservation}
+                >
+                  {isAddingReservation ? 'Adding...' : 'Add Reservation'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {unifiedItems.length > 0 ? (
             unifiedItems.map((item, index) => (
               <DhcpCard

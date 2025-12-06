@@ -174,7 +174,7 @@ class DhcpManager:
         """Add a new static IP reservation.
         
         If ip_address is not provided or is in pool range, automatically assigns
-        the next available IP from reserved range (49 down to 2).
+        the next available IP from reserved range (2 up to 49).
         """
         config = self.get_config()
         
@@ -395,6 +395,7 @@ class DhcpManager:
         
         Returns the maximum number of reservations based on the current
         pool configuration. Calculates backwards from the pool start IP.
+        If no pool exists, all IPs are reserved (max_reservations = 249).
         
         Returns:
             Maximum reservations count (boundary value)
@@ -404,6 +405,19 @@ class DhcpManager:
             print(f"[DHCP] get_current_boundary: pool range = {start_ip} - {end_ip}")
             
             if not start_ip:
+                print("[DHCP] get_current_boundary: No pool found - checking if all IPs are reserved")
+                # If no pool exists, check if we have a reserved range that goes to 250
+                # If all IPs are reserved (2-250), max_reservations = 249
+                config = self.get_config()
+                subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
+                if subnet4:
+                    subnet = subnet4[0]
+                    pools = subnet.get('pools', [])
+                    # If pools array is empty, all IPs are reserved
+                    if not pools:
+                        print("[DHCP] get_current_boundary: Empty pools array - all IPs reserved, returning 249")
+                        return 249
+                
                 print("[DHCP] get_current_boundary: No pool start IP found, defaulting to 48")
                 # Default to 48 if pool range can't be determined
                 return 48
@@ -420,10 +434,11 @@ class DhcpManager:
             print(f"[DHCP] get_current_boundary: pool_start_octet = {pool_start_octet}")
             # Reserved range: 2 to (pool_start_octet - 1)
             # Max reservations = (pool_start_octet - 1) - 2 + 1 = pool_start_octet - 2
+            # If pool_start = 2, then max_reservations = 0 (no reserved range, full pool)
             max_reservations = pool_start_octet - 2
             print(f"[DHCP] get_current_boundary: calculated max_reservations = {max_reservations}")
             
-            # Ensure it's within valid range
+            # Ensure it's within valid range (0 to 249)
             if max_reservations < 0:
                 print(f"[DHCP] get_current_boundary: max_reservations < 0, returning 0")
                 return 0
@@ -485,7 +500,7 @@ class DhcpManager:
         return start_int <= ip_int <= end_int
     
     def _get_next_available_reserved_ip(self) -> Optional[str]:
-        """Find the next available IP in reserved range (49 down to 2)."""
+        """Find the next available IP in reserved range (2 up to 49)."""
         existing_reservations = self.get_reservations()
         used_ips = {res['ip-address'] for res in existing_reservations}
         
@@ -496,8 +511,8 @@ class DhcpManager:
         if start_int is None or end_int is None:
             return None
         
-        # Check from 49 down to 2 (descending)
-        for ip_int in range(end_int, start_int - 1, -1):
+        # Check from 2 up to 49 (ascending)
+        for ip_int in range(start_int, end_int + 1, 1):
             # Convert integer back to IP string
             ip_parts = [
                 (ip_int >> 24) & 0xFF,
@@ -658,18 +673,50 @@ class DhcpManager:
         # Validate constraints
         # Terminology:
         # - Hosts = unique MAC addresses (devices)
-        # - Leases = IP addresses currently leased/assigned (active DHCP leases)
+        # - Leases = IP addresses currently leased/assigned (active DHCP leases for non-reserved devices)
         # - Reservations = fixed IP assignments to MAC addresses
         current_reservations = len(self.get_reservations())
-        current_leases = len(self.get_leases())  # Active leases (IPs currently leased to devices)
+        
+        # Get active leases and filter out those that are reservations
+        # Only count leases for devices that don't have reservations
+        leases = self.get_leases()
+        reservations = self.get_reservations()
+        reserved_macs = {res['hw-address'].lower() for res in reservations}
+        active_leases = [lease for lease in leases if lease['hw-address'].lower() not in reserved_macs]
+        current_leases = len(active_leases)  # Active leases (non-reserved devices)
+        
         total_ips = 249  # 192.168.123.2 to 192.168.123.250
         
-        # Min value: can't go below current reservations
-        if max_reservations < current_reservations:
-            raise Exception(f"Cannot set max reservations below current reservations ({current_reservations})")
+        # Min value: can't go below current reservation count
+        # If there are no reservations, we can go down to 0 (full pool range 2-250)
+        min_allowed = current_reservations
+        
+        if max_reservations < min_allowed:
+            raise Exception(f"Cannot set max reservations below {min_allowed} (current reservations: {min_allowed})")
+        
+        # Validate that all existing reservations are within the new reserved range
+        # If max_reservations = 0, there's no reserved range, so we can't have any reservations
+        if max_reservations == 0:
+            if current_reservations > 0:
+                raise Exception(f"Cannot set max reservations to 0 when there are {current_reservations} existing reservations")
+        else:
+            # Reserved range is 192.168.123.2 to 192.168.123.(max_reservations+1)
+            reserved_end = max_reservations + 1
+            for res in reservations:
+                ip = res.get('ip-address', '')
+                ip_parts = ip.split('.')
+                if len(ip_parts) == 4:
+                    try:
+                        ip_last_octet = int(ip_parts[3])
+                        # Reserved range: 2 to (max_reservations+1)
+                        # If reservation is at .X, then max_reservations+1 must be >= X
+                        if ip_last_octet < 2 or ip_last_octet > reserved_end:
+                            raise Exception(f"Existing reservation {ip} is outside new reserved range (192.168.123.2 - 192.168.123.{reserved_end}). Minimum allowed: {ip_last_octet - 1}")
+                    except ValueError:
+                        continue
         
         # Max value constraint logic:
-        # - If there are 0 active leases (no devices currently have leased IPs), we can set all IPs to reservations (max = total_ips, leaving 0 leases capacity)
+        # - If there are 0 active leases (no non-reserved devices currently have leased IPs), we can set all IPs to reservations (max = total_ips, leaving 0 leases capacity)
         # - If there are active leases, we must ensure at least that many leases can be accommodated
         #   So max reservations = total_ips - active_leases_count
         if current_leases == 0:
@@ -684,26 +731,30 @@ class DhcpManager:
                 raise Exception(f"Cannot set max reservations above {max_allowed} (must ensure {current_leases} active leases minimum)")
         
         # Calculate new boundary
-        # If max_reservations = N, we can have up to N reservations
+        # If max_reservations = 0, no reserved range, pool is full (2-250)
+        # If max_reservations = N (N > 0), we can have up to N reservations
         # Reserved range: 192.168.123.2 to 192.168.123.(N+1) gives us N IPs (2, 3, ..., N+1)
         # Pool range: 192.168.123.(N+2) to 192.168.123.250
-        reserved_end = max_reservations + 1
-        pool_start = reserved_end + 1
-        pool_end = 250
+        if max_reservations == 0:
+            # No reserved range, pool is full (2-250)
+            reserved_end = None
+            pool_start = 2
+            pool_end = 250
+        else:
+            reserved_end = max_reservations + 1
+            pool_start = reserved_end + 1
+            pool_end = 250
+            
+            # Edge case: If all IPs are reserved (max_reservations = 249), there's no pool
+            # In this case, we need to handle it specially - either no pool or empty pool
+            if pool_start > pool_end:
+                # All IPs are reserved, no pool available
+                pool_start = None
+                pool_end = None
         
-        # Validate that existing reservations are within new reserved range
-        reservations = self.get_reservations()
-        for res in reservations:
-            ip = res['ip-address']
-            ip_parts = ip.split('.')
-            if len(ip_parts) != 4:
-                continue
-            try:
-                ip_last_octet = int(ip_parts[3])
-                if ip_last_octet < 2 or ip_last_octet > reserved_end:
-                    raise Exception(f"Existing reservation {ip} is outside new reserved range (192.168.123.2 - 192.168.123.{reserved_end})")
-            except ValueError:
-                continue
+        # Note: We already validated that max_reservations >= min_allowed (based on highest reservation IP)
+        # So all existing reservations will be within the new reserved range
+        # No need to validate again here
         
         # Note: We don't validate existing leases against the new pool range because:
         # 1. Leases are temporary and will expire naturally
@@ -720,11 +771,24 @@ class DhcpManager:
             subnet = subnet4[0]
             
             # Update pool range
-            new_pool_range = f"192.168.123.{pool_start} - 192.168.123.{pool_end}"
-            if 'pools' not in subnet or not subnet['pools']:
-                subnet['pools'] = [{'pool': new_pool_range}]
+            # If all IPs are reserved (pool_start > pool_end), remove the pool entirely
+            if pool_start is None or pool_end is None or pool_start > pool_end:
+                # All IPs are reserved, remove pool configuration
+                if 'pools' in subnet:
+                    subnet['pools'] = []
             else:
-                subnet['pools'][0]['pool'] = new_pool_range
+                # Normal case: set the pool range
+                new_pool_range = f"192.168.123.{pool_start} - 192.168.123.{pool_end}"
+                if 'pools' not in subnet or not subnet['pools']:
+                    subnet['pools'] = [{'pool': new_pool_range}]
+                else:
+                    subnet['pools'][0]['pool'] = new_pool_range
+            
+            # If max_reservations = 0, remove any reservations from the reserved range
+            # (Actually, we should keep existing reservations, they'll just be in the pool range)
+            # But we need to ensure the reserved range is empty in the config
+            # Actually, if max_reservations = 0, there's no reserved range, so reservations
+            # should still work but they'll be in the pool range. Let's not remove them.
             
             # Update config
             self.update_config(config)

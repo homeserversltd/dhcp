@@ -7,7 +7,6 @@ interface ReservationSliderProps {
   currentHosts: number;
   currentBoundary?: number;
   onBoundaryUpdate: (maxReservations: number) => Promise<void>;
-  onAddReservation?: (mac: string, ip: string) => Promise<void>;
   isLoading?: boolean;
 }
 
@@ -17,7 +16,6 @@ export const ReservationSlider: React.FC<ReservationSliderProps> = ({
   currentHosts,
   currentBoundary,
   onBoundaryUpdate,
-  onAddReservation,
   isLoading = false
 }) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -25,20 +23,23 @@ export const ReservationSlider: React.FC<ReservationSliderProps> = ({
   const initialValue = currentBoundary !== undefined ? currentBoundary : currentReservations;
   const [sliderValue, setSliderValue] = useState(initialValue);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [newMac, setNewMac] = useState('');
-  const [newIp, setNewIp] = useState('');
-  const [isAddingReservation, setIsAddingReservation] = useState(false);
 
   // Total IPs available: 192.168.123.2 to 192.168.123.250 = 249 IPs
   const TOTAL_IPS = 249;
   
   // Calculate constraints
-  const minValue = currentReservations; // Can't go below existing reservations
+  // Min value: can't go below current reservation count
+  // If there are no reservations, we can go down to 0 (full pool range 2-250)
+  const minValue = currentReservations;
+  
   // Constraint logic:
   // - If there are 0 active hosts (leases), we can set all IPs to reservations (max = TOTAL_IPS, leaving 0 leases capacity)
   // - If there are active hosts, we must ensure at least that many leases can be accommodated
   //   So max reservations = TOTAL_IPS - active_hosts_count
   const maxValue = currentHosts === 0 ? TOTAL_IPS : TOTAL_IPS - currentHosts;
+
+  // Calculate recommended value: 20% reservations, 80% leases
+  const recommendedValue = Math.max(minValue, Math.min(maxValue, Math.round(TOTAL_IPS * 0.20)));
 
   useEffect(() => {
     // Update slider value when current boundary or reservations change
@@ -69,38 +70,43 @@ export const ReservationSlider: React.FC<ReservationSliderProps> = ({
     }
   };
 
-  const handleAddReservation = async () => {
-    if (!newMac || !newIp || !onAddReservation) {
-      return;
+  const handleApplyRecommended = async () => {
+    if (recommendedValue === sliderValue) {
+      return; // Already at recommended value
     }
 
-    setIsAddingReservation(true);
+    setIsUpdating(true);
     try {
-      await onAddReservation(newMac, newIp);
-      setNewMac('');
-      setNewIp('');
+      setSliderValue(recommendedValue);
+      await onBoundaryUpdate(recommendedValue);
     } catch (err) {
-      console.error('Failed to add reservation:', err);
+      console.error('Failed to apply recommended value:', err);
     } finally {
-      setIsAddingReservation(false);
+      setIsUpdating(false);
     }
   };
 
+
   // Calculate reserved and pool ranges based on slider value
-  // If sliderValue = N, we can have up to N reservations
+  // If sliderValue = 0, no reserved range, pool is full (2-250)
+  // If sliderValue = N (N > 0), we can have up to N reservations
   // Reserved range: 192.168.123.2 to 192.168.123.(N+1) gives us N IPs (2, 3, ..., N+1)
   // Pool range: 192.168.123.(N+2) to 192.168.123.250
-  const reservedEnd = sliderValue + 1; // Last IP in reserved range
-  const poolStart = reservedEnd + 1; // First IP in pool range
-  const poolEnd = 250; // Last IP in pool range
+  let reservedRange: string;
+  let poolRange: string;
+  
+  if (sliderValue === 0) {
+    // No reserved range, pool is full (2-250)
+    reservedRange = "None (full pool)";
+    poolRange = "192.168.123.2 - 192.168.123.250";
+  } else {
+    const reservedEnd = sliderValue + 1; // Last IP in reserved range
+    const poolStart = reservedEnd + 1; // First IP in pool range
+    const poolEnd = 250; // Last IP in pool range
+    reservedRange = `192.168.123.2 - 192.168.123.${reservedEnd}`;
+    poolRange = `192.168.123.${poolStart} - 192.168.123.${poolEnd}`;
+  }
 
-  const reservedRange = `192.168.123.2 - 192.168.123.${reservedEnd}`;
-  const poolRange = `192.168.123.${poolStart} - 192.168.123.${poolEnd}`;
-
-  // Show manual addition when hosts = 0
-  const showManualAddition = currentHosts === 0;
-  // Show MAC/IP input when hosts = 0 and all IPs are reserved (slider at max)
-  const showMacIpInput = showManualAddition && sliderValue >= maxValue;
 
   if (!isVisible) {
     return (
@@ -131,24 +137,26 @@ export const ReservationSlider: React.FC<ReservationSliderProps> = ({
 
       <div className="reservation-slider-content">
         <div className="slider-info">
-          <div className="slider-info-item">
-            <span className="slider-info-label">Current Reservations:</span>
-            <span className="slider-info-value">{currentReservations}</span>
-          </div>
-          <div className="slider-info-item">
-            <span className="slider-info-label">Current Hosts:</span>
-            <span className="slider-info-value">{currentHosts}</span>
-          </div>
-          <div className="slider-info-item">
-            <span className="slider-info-label">Max Reservations:</span>
-            <span className="slider-info-value">{sliderValue}</span>
+          <div className="slider-info-item recommended-item">
+            <div className="recommended-content">
+              <span className="slider-info-label">Recommended:</span>
+              <span className="slider-info-value">{recommendedValue} reservations ({TOTAL_IPS - recommendedValue} leases)</span>
+            </div>
+            <button
+              onClick={handleApplyRecommended}
+              className="apply-recommended-button"
+              disabled={isUpdating || isLoading || recommendedValue === sliderValue}
+              title="Apply recommended: 20% reservations, 80% leases"
+            >
+              Apply
+            </button>
           </div>
         </div>
 
         <div className="slider-control">
           <div className="slider-labels">
-            <span className="slider-label-left">More Reservations</span>
-            <span className="slider-label-right">More Leases</span>
+            <span className="slider-label-left">More Leases</span>
+            <span className="slider-label-right">More Reservations</span>
           </div>
           <input
             type="range"
@@ -183,51 +191,6 @@ export const ReservationSlider: React.FC<ReservationSliderProps> = ({
         {isUpdating && (
           <div className="slider-updating">
             Updating Kea configuration...
-          </div>
-        )}
-
-        {showManualAddition && !showMacIpInput && (
-          <div className="manual-addition-box">
-            <p>No active hosts detected. You can manually add reservations below.</p>
-          </div>
-        )}
-
-        {showMacIpInput && (
-          <div className="mac-ip-input-row">
-            <h4>Add New Reservation</h4>
-            <div className="mac-ip-inputs">
-              <div className="input-group">
-                <label htmlFor="new-mac">MAC Address:</label>
-                <input
-                  id="new-mac"
-                  type="text"
-                  value={newMac}
-                  onChange={(e) => setNewMac(e.target.value)}
-                  placeholder="aa:bb:cc:dd:ee:ff"
-                  className="mac-input"
-                  disabled={isAddingReservation}
-                />
-              </div>
-              <div className="input-group">
-                <label htmlFor="new-ip">IP Address:</label>
-                <input
-                  id="new-ip"
-                  type="text"
-                  value={newIp}
-                  onChange={(e) => setNewIp(e.target.value)}
-                  placeholder="192.168.123.2"
-                  className="ip-input"
-                  disabled={isAddingReservation}
-                />
-              </div>
-              <button
-                onClick={handleAddReservation}
-                className="add-reservation-button"
-                disabled={!newMac || !newIp || isAddingReservation}
-              >
-                {isAddingReservation ? 'Adding...' : 'Add Reservation'}
-              </button>
-            </div>
           </div>
         )}
       </div>

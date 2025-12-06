@@ -842,6 +842,19 @@
   gap: 4px;
 }
 
+.slider-info-item.recommended-item {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.recommended-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .slider-info-label {
   font-size: 0.875rem;
   color: var(--secondary);
@@ -853,6 +866,29 @@
   color: var(--text);
   font-weight: 600;
   font-family: 'Courier New', monospace;
+}
+
+.slider-info-item .apply-recommended-button {
+  padding: 6px 12px;
+  background: var(--accent);
+  color: var(--background);
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.slider-info-item .apply-recommended-button:hover:not(:disabled) {
+  background: var(--primaryHover);
+  opacity: 0.9;
+}
+
+.slider-info-item .apply-recommended-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .slider-control {
@@ -1083,6 +1119,33 @@
 }
 
 .add-reservation-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Add Reservation Row in List */
+.add-reservation-row .mac-input,
+.add-reservation-row .ip-input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  background: var(--background);
+  color: var(--text);
+  min-width: 180px;
+  transition: border-color 0.2s ease;
+}
+
+.add-reservation-row .mac-input:focus,
+.add-reservation-row .ip-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 0, 123, 255), 0.2);
+}
+
+.add-reservation-row .mac-input:disabled,
+.add-reservation-row .ip-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
