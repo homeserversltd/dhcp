@@ -26,6 +26,7 @@
       "types": "frontend/types.ts",
       "styles": "frontend/PortalCard.css",
       "DhcpCard": "frontend/components/DhcpCard.tsx",
+      "ReservationSlider": "frontend/components/ReservationSlider.tsx",
       "useDhcpControls": "frontend/hooks/useDhcpControls.ts",
       "default_icon": "frontend/images/default.png"
     },

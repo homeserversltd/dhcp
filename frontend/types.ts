@@ -101,3 +101,28 @@ export interface DhcpStatisticsResponse {
   error?: string;
 }
 
+export interface PoolBoundaryUpdate {
+  max_reservations: number;
+}
+
+export interface PoolBoundaryResponse {
+  success: boolean;
+  max_reservations?: number;
+  error?: string;
+}
+
+export interface PoolBoundaryUpdateResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export interface ReservationSliderState {
+  isVisible: boolean;
+  maxReservations: number;
+  minValue: number;
+  maxValue: number;
+  currentReservations: number;
+  currentHosts: number;
+}
+

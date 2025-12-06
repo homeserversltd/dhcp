@@ -390,6 +390,56 @@ class DhcpManager:
         """Get the reserved IP range for pinned reservations (2-49)."""
         return ("192.168.123.2", "192.168.123.49")
     
+    def get_current_boundary(self) -> int:
+        """Get the current max reservations boundary from config.
+        
+        Returns the maximum number of reservations based on the current
+        pool configuration. Calculates backwards from the pool start IP.
+        
+        Returns:
+            Maximum reservations count (boundary value)
+        """
+        try:
+            start_ip, end_ip = self._get_pool_range()
+            print(f"[DHCP] get_current_boundary: pool range = {start_ip} - {end_ip}")
+            
+            if not start_ip:
+                print("[DHCP] get_current_boundary: No pool start IP found, defaulting to 48")
+                # Default to 48 if pool range can't be determined
+                return 48
+            
+            # Pool starts at 192.168.123.X
+            # Reserved range is 192.168.123.2 to 192.168.123.(X-1)
+            # So max reservations = X - 2
+            ip_parts = start_ip.split('.')
+            if len(ip_parts) != 4:
+                print(f"[DHCP] get_current_boundary: Invalid IP format: {start_ip}, defaulting to 48")
+                return 48
+            
+            pool_start_octet = int(ip_parts[3])
+            print(f"[DHCP] get_current_boundary: pool_start_octet = {pool_start_octet}")
+            # Reserved range: 2 to (pool_start_octet - 1)
+            # Max reservations = (pool_start_octet - 1) - 2 + 1 = pool_start_octet - 2
+            max_reservations = pool_start_octet - 2
+            print(f"[DHCP] get_current_boundary: calculated max_reservations = {max_reservations}")
+            
+            # Ensure it's within valid range
+            if max_reservations < 0:
+                print(f"[DHCP] get_current_boundary: max_reservations < 0, returning 0")
+                return 0
+            if max_reservations > 249:
+                print(f"[DHCP] get_current_boundary: max_reservations > 249, returning 249")
+                return 249
+            
+            print(f"[DHCP] get_current_boundary: returning {max_reservations}")
+            return max_reservations
+        except Exception as e:
+            # Default to 48 if calculation fails
+            print(f"[DHCP] get_current_boundary: Exception occurred: {str(e)}, defaulting to 48")
+            import traceback
+            traceback.print_exc()
+            return 48
+    
     def _ip_to_int(self, ip: str) -> Optional[int]:
         """Convert IP address to integer for comparison."""
         try:
@@ -542,11 +592,33 @@ class DhcpManager:
             # Get reservation count
             reservations = self.get_reservations()
             reservations_count = len(reservations)
-            reservations_total = 48  # Reserved range: 192.168.123.2 - 192.168.123.49
+            
+            # Calculate reservations_total based on current pool boundary
+            # Get the current boundary to determine the actual reserved range
+            try:
+                print(f"[DHCP] get_statistics: Calling get_current_boundary()...")
+                max_reservations = self.get_current_boundary()
+                print(f"[DHCP] get_statistics: get_current_boundary() returned {max_reservations}")
+                # Reserved range: 192.168.123.2 to 192.168.123.(max_reservations+1)
+                # Total = max_reservations (since we have IPs from 2 to max_reservations+1, that's max_reservations IPs)
+                reservations_total = max_reservations
+                print(f"[DHCP] get_statistics: Setting reservations_total = {reservations_total}")
+            except Exception as e:
+                # Fallback to default if boundary can't be determined
+                print(f"[DHCP] get_statistics: Exception in get_current_boundary(): {str(e)}, defaulting to 48")
+                import traceback
+                traceback.print_exc()
+                reservations_total = 48
             
             # Get lease count
+            # Only count leases that are NOT reservations (active leases for non-reserved devices)
             leases = self.get_leases()
-            leases_count = len(leases)
+            reservations = self.get_reservations()
+            reserved_macs = {res['hw-address'].lower() for res in reservations}
+            
+            # Filter out leases that match reservations by MAC address
+            active_leases = [lease for lease in leases if lease['hw-address'].lower() not in reserved_macs]
+            leases_count = len(active_leases)
             
             # Calculate pool total
             start_ip, end_ip = self._get_pool_range()
@@ -566,4 +638,98 @@ class DhcpManager:
             }
         except Exception as e:
             raise Exception(f"Failed to get statistics: {str(e)}")
+    
+    def update_pool_boundary(self, max_reservations: int) -> bool:
+        """Update the pool boundary to adjust reservations-to-hosts ratio.
+        
+        Args:
+            max_reservations: Maximum number of reservations allowed.
+                            This sets the boundary between reserved range
+                            and pool range.
+        
+        Returns:
+            True if update was successful
+        
+        Raises:
+            Exception if validation fails or update fails
+        """
+        config = self.get_config()
+        
+        # Validate constraints
+        # Terminology:
+        # - Hosts = unique MAC addresses (devices)
+        # - Leases = IP addresses currently leased/assigned (active DHCP leases)
+        # - Reservations = fixed IP assignments to MAC addresses
+        current_reservations = len(self.get_reservations())
+        current_leases = len(self.get_leases())  # Active leases (IPs currently leased to devices)
+        total_ips = 249  # 192.168.123.2 to 192.168.123.250
+        
+        # Min value: can't go below current reservations
+        if max_reservations < current_reservations:
+            raise Exception(f"Cannot set max reservations below current reservations ({current_reservations})")
+        
+        # Max value constraint logic:
+        # - If there are 0 active leases (no devices currently have leased IPs), we can set all IPs to reservations (max = total_ips, leaving 0 leases capacity)
+        # - If there are active leases, we must ensure at least that many leases can be accommodated
+        #   So max reservations = total_ips - active_leases_count
+        if current_leases == 0:
+            max_allowed = total_ips  # Allow all IPs to be reservations (0 leases capacity)
+        else:
+            max_allowed = total_ips - current_leases  # Ensure minimum leases capacity for active leases
+        
+        if max_reservations > max_allowed:
+            if current_leases == 0:
+                raise Exception(f"Cannot set max reservations above {max_allowed} (total available IPs)")
+            else:
+                raise Exception(f"Cannot set max reservations above {max_allowed} (must ensure {current_leases} active leases minimum)")
+        
+        # Calculate new boundary
+        # If max_reservations = N, we can have up to N reservations
+        # Reserved range: 192.168.123.2 to 192.168.123.(N+1) gives us N IPs (2, 3, ..., N+1)
+        # Pool range: 192.168.123.(N+2) to 192.168.123.250
+        reserved_end = max_reservations + 1
+        pool_start = reserved_end + 1
+        pool_end = 250
+        
+        # Validate that existing reservations are within new reserved range
+        reservations = self.get_reservations()
+        for res in reservations:
+            ip = res['ip-address']
+            ip_parts = ip.split('.')
+            if len(ip_parts) != 4:
+                continue
+            try:
+                ip_last_octet = int(ip_parts[3])
+                if ip_last_octet < 2 or ip_last_octet > reserved_end:
+                    raise Exception(f"Existing reservation {ip} is outside new reserved range (192.168.123.2 - 192.168.123.{reserved_end})")
+            except ValueError:
+                continue
+        
+        # Note: We don't validate existing leases against the new pool range because:
+        # 1. Leases are temporary and will expire naturally
+        # 2. Existing leases can be anywhere in the subnet - they're not restricted to pool range
+        # 3. The pool range only affects NEW lease assignments, not existing ones
+        # 4. Moving the boundary doesn't invalidate existing leases - they'll continue to work
+        
+        # Update config
+        try:
+            subnet4 = config.get('Dhcp4', {}).get('subnet4', [])
+            if not subnet4:
+                raise Exception("No subnet4 configuration found")
+            
+            subnet = subnet4[0]
+            
+            # Update pool range
+            new_pool_range = f"192.168.123.{pool_start} - 192.168.123.{pool_end}"
+            if 'pools' not in subnet or not subnet['pools']:
+                subnet['pools'] = [{'pool': new_pool_range}]
+            else:
+                subnet['pools'][0]['pool'] = new_pool_range
+            
+            # Update config
+            self.update_config(config)
+            
+            return True
+        except Exception as e:
+            raise Exception(f"Failed to update pool boundary: {str(e)}")
 

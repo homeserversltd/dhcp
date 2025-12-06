@@ -238,3 +238,62 @@ def get_statistics():
             'error': str(e)
         }), 500
 
+@bp.route('/pool-boundary', methods=['GET'])
+def get_pool_boundary():
+    """Get the current pool boundary (max reservations setting)."""
+    try:
+        max_reservations = dhcp_manager.get_current_boundary()
+        return jsonify({
+            'success': True,
+            'max_reservations': max_reservations
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error getting pool boundary: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@bp.route('/pool-boundary', methods=['POST'])
+def update_pool_boundary():
+    """Update the pool boundary to adjust reservations-to-hosts ratio.
+    
+    Accepts max_reservations count and updates the Kea config to set
+    the boundary between reserved range and pool range.
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+        
+        if 'max_reservations' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: max_reservations'
+            }), 400
+        
+        max_reservations = data['max_reservations']
+        
+        if not isinstance(max_reservations, int) or max_reservations < 0:
+            return jsonify({
+                'success': False,
+                'error': 'max_reservations must be a non-negative integer'
+            }), 400
+        
+        result = dhcp_manager.update_pool_boundary(max_reservations)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Pool boundary updated successfully'
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error updating pool boundary: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+

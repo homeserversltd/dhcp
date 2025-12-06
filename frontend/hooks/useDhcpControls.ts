@@ -10,7 +10,9 @@ import {
   DhcpReservationsResponse,
   DhcpConfigResponse,
   DhcpStatistics,
-  DhcpStatisticsResponse
+  DhcpStatisticsResponse,
+  PoolBoundaryResponse,
+  PoolBoundaryUpdateResponse
 } from '../types';
 
 export const useDhcpControls = () => {
@@ -244,15 +246,89 @@ export const useDhcpControls = () => {
     setIsLoading(true);
     setError(null);
     try {
+      console.log('[DHCP] Fetching statistics...');
       const response = await fetch('/api/dhcp/statistics');
       const data: DhcpStatisticsResponse = await response.json();
+      
+      console.log('[DHCP] Statistics response:', {
+        success: data.success,
+        statistics: data.statistics,
+        error: data.error
+      });
       
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to get DHCP statistics');
       }
       
+      if (data.statistics) {
+        console.log('[DHCP] Statistics values:', {
+          reservations_count: data.statistics.reservations_count,
+          reservations_total: data.statistics.reservations_total,
+          leases_count: data.statistics.leases_count,
+          leases_total: data.statistics.leases_total
+        });
+      }
+      
       setIsLoading(false);
       return data.statistics!;
+    } catch (err) {
+      console.error('[DHCP] Error fetching statistics:', err);
+      handleError(err);
+      throw err;
+    }
+  }, []);
+
+  const getPoolBoundary = useCallback(async (): Promise<number> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      console.log('[DHCP] Fetching pool boundary...');
+      const response = await fetch('/api/dhcp/pool-boundary');
+      const data: PoolBoundaryResponse = await response.json();
+      
+      console.log('[DHCP] Pool boundary response:', {
+        success: data.success,
+        max_reservations: data.max_reservations,
+        error: data.error
+      });
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to get pool boundary');
+      }
+      
+      const maxReservations = data.max_reservations || 0;
+      console.log('[DHCP] Current boundary (max_reservations):', maxReservations);
+      
+      setIsLoading(false);
+      return maxReservations;
+    } catch (err) {
+      console.error('[DHCP] Error fetching pool boundary:', err);
+      handleError(err);
+      throw err;
+    }
+  }, []);
+
+  const updatePoolBoundary = useCallback(async (maxReservations: number): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/dhcp/pool-boundary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          max_reservations: maxReservations,
+        }),
+      });
+      
+      const data: PoolBoundaryUpdateResponse = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update pool boundary');
+      }
+      
+      setIsLoading(false);
     } catch (err) {
       handleError(err);
       throw err;
@@ -270,6 +346,8 @@ export const useDhcpControls = () => {
     updateConfig,
     checkHealth,
     getStatistics,
+    getPoolBoundary,
+    updatePoolBoundary,
     isLoading,
     error,
   };
