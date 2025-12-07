@@ -208,6 +208,18 @@ rsync -av --delete ./dhcp/ root@server:/var/www/homeserver/premium/dhcp/
 sudo python3 /var/www/homeserver/premium/installer.py reinstall dhcp
 ```
 
+## Watch Commands
+
+**Watch IP Pool:**
+```bash
+watch -n 1 'jq -r ".Dhcp4.subnet4[0].pools[0].pool" /etc/kea/kea-dhcp4.conf'
+```
+
+**Watch Reserved IPs (IP addresses only):**
+```bash
+watch -n 1 'jq -r ".Dhcp4.subnet4[0].reservations[] | .[\"ip-address\"]" /etc/kea/kea-dhcp4.conf'
+```
+
 ## Integration with Homeserver Platform
 
 This tab integrates with the homeserver platform's premium tab system:

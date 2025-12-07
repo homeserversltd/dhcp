@@ -28,6 +28,7 @@
       "DhcpCard": "frontend/components/DhcpCard.tsx",
       "ReservationSlider": "frontend/components/ReservationSlider.tsx",
       "useDhcpControls": "frontend/hooks/useDhcpControls.ts",
+      "anonymize": "frontend/utils/anonymize.ts",
       "default_icon": "frontend/images/default.png"
     },
     "permissions": {

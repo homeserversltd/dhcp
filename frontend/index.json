@@ -42,6 +42,13 @@
       "type": "copy",
       "identifier": null,
       "description": "Default icon for the tablet"
+    },
+    {
+      "source": "frontend/utils/anonymize.ts",
+      "target": "/var/www/homeserver/src/tablets/dhcp/utils/anonymize.ts",
+      "type": "copy",
+      "identifier": null,
+      "description": "Utility functions for anonymizing MAC addresses and hostnames"
     }
   ]
 }

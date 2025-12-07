@@ -26,6 +26,7 @@ const DhcpTablet: React.FC = () => {
   const [newMac, setNewMac] = useState('');
   const [newIp, setNewIp] = useState('');
   const [isAddingReservation, setIsAddingReservation] = useState(false);
+  const [isAnonymized, setIsAnonymized] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -205,6 +206,18 @@ const DhcpTablet: React.FC = () => {
         >
           {isLoading ? 'Refreshing...' : 'Refresh'}
         </button>
+        <div className="anonymize-toggle-container">
+          <label className="anonymize-toggle-label">
+            <input
+              type="checkbox"
+              checked={isAnonymized}
+              onChange={(e) => setIsAnonymized(e.target.checked)}
+              className="anonymize-toggle-input"
+            />
+            <span className="anonymize-toggle-slider"></span>
+            <span className="anonymize-toggle-text">Anonymize</span>
+          </label>
+        </div>
         <ReservationSlider
           statistics={statistics}
           currentReservations={reservations.length}
@@ -281,6 +294,7 @@ const DhcpTablet: React.FC = () => {
                 onPin={handlePin}
                 onUpdateIp={handleUpdateIp}
                 onRemove={handleRemoveReservation}
+                isAnonymized={isAnonymized}
               />
             ))
           ) : (

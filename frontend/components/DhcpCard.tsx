@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { DhcpLease, DhcpReservation, UnifiedLeaseItem } from '../types';
+import { anonymizeMac, anonymizeHostname } from '../utils/anonymize';
 
 interface DhcpCardProps {
   item: UnifiedLeaseItem;
@@ -7,6 +8,7 @@ interface DhcpCardProps {
   onUpdateIp?: (identifier: string, newIp: string) => Promise<void>;
   onRemove?: (identifier: string) => void;
   className?: string;
+  isAnonymized?: boolean;
 }
 
 export const DhcpCard: React.FC<DhcpCardProps> = ({ 
@@ -14,7 +16,8 @@ export const DhcpCard: React.FC<DhcpCardProps> = ({
   onPin,
   onUpdateIp,
   onRemove,
-  className = '' 
+  className = '',
+  isAnonymized = false
 }) => {
   const [isEditingIp, setIsEditingIp] = useState(false);
   const [editedIp, setEditedIp] = useState(item['ip-address']);
@@ -23,6 +26,16 @@ export const DhcpCard: React.FC<DhcpCardProps> = ({
 
   const isReservation = item.type === 'reservation';
   const isLease = item.type === 'lease';
+
+  // Anonymize display values when enabled
+  const displayMac = useMemo(() => {
+    return isAnonymized ? anonymizeMac(item['hw-address']) : item['hw-address'];
+  }, [item['hw-address'], isAnonymized]);
+
+  const displayHostname = useMemo(() => {
+    if (!item.hostname) return undefined;
+    return isAnonymized ? anonymizeHostname(item.hostname) : item.hostname;
+  }, [item.hostname, isAnonymized]);
 
   const handlePin = async () => {
     if (onPin && isLease) {
@@ -129,7 +142,7 @@ export const DhcpCard: React.FC<DhcpCardProps> = ({
           <div className="dhcp-list-item-info">
             <div className="dhcp-list-item-mac">
               <span className="info-label">MAC:</span>
-              <span className="info-value">{item['hw-address']}</span>
+              <span className="info-value">{displayMac}</span>
             </div>
             <div className="dhcp-list-item-ip">
               <span className="info-label">IP:</span>
@@ -151,10 +164,10 @@ export const DhcpCard: React.FC<DhcpCardProps> = ({
                 <span className="info-value">{item['ip-address']}</span>
               )}
             </div>
-            {item.hostname && (
+            {displayHostname && (
               <div className="dhcp-list-item-hostname">
                 <span className="info-label">Hostname:</span>
-                <span className="info-value">{item.hostname}</span>
+                <span className="info-value">{displayHostname}</span>
               </div>
             )}
             {isLease && 'expire' in item && item.expire && (
