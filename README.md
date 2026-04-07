@@ -1,5 +1,7 @@
 # DHCP Premium Tab
 
+**Disclaimer:** This software is provided in pre-release form "as is" and "as available," without warranty of any kind. It may not operate correctly, may corrupt or delete data, and is not intended for production use. You use it at your own risk.
+
 ## Overview
 
 The DHCP Premium Tab is an add-on module for the homeserver platform that provides comprehensive DHCP management functionality. It integrates with the Kea DHCP server to provide a unified interface for viewing active DHCP leases, managing static IP reservations, and configuring network address allocation.
